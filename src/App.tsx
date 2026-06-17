@@ -5,6 +5,8 @@ import PreTripPage from "@/pages/PreTripPage";
 import DrivingPage from "@/pages/DrivingPage";
 import PostTripPage from "@/pages/PostTripPage";
 import RecordPage from "@/pages/RecordPage";
+import RecordListPage from "@/pages/RecordListPage";
+import SupervisorDashboard from "@/pages/SupervisorDashboard";
 
 const pageVariants = {
   initial: { opacity: 0, y: 14 },
@@ -14,12 +16,37 @@ const pageVariants = {
 
 export default function App() {
   const scene = useTripStore((s) => s.scene);
+  const viewMode = useTripStore((s) => s.viewMode);
+
+  const viewKey =
+    viewMode === "driver"
+      ? `driver-${scene}`
+      : viewMode === "detail"
+      ? `list-detail`
+      : viewMode;
+
+  function renderView() {
+    if (viewMode === "supervisor") return <SupervisorDashboard />;
+    if (viewMode === "list" || viewMode === "detail") return <RecordListPage />;
+
+    switch (scene) {
+      case "pre-trip":
+        return <PreTripPage />;
+      case "driving":
+        return <DrivingPage />;
+      case "post-trip":
+        return <PostTripPage />;
+      case "completed":
+      default:
+        return <RecordPage />;
+    }
+  }
 
   return (
     <AppShell>
       <AnimatePresence mode="wait">
         <motion.div
-          key={scene}
+          key={viewKey}
           variants={pageVariants}
           initial="initial"
           animate="animate"
@@ -27,10 +54,7 @@ export default function App() {
           transition={{ duration: 0.28, ease: "easeOut" }}
           className="h-full w-full"
         >
-          {scene === "pre-trip" && <PreTripPage />}
-          {scene === "driving" && <DrivingPage />}
-          {scene === "post-trip" && <PostTripPage />}
-          {scene === "completed" && <RecordPage />}
+          {renderView()}
         </motion.div>
       </AnimatePresence>
     </AppShell>

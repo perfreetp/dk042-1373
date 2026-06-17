@@ -18,13 +18,14 @@ interface StatusBarProps {
   title: string;
   subtitle?: ReactNode;
   onBack?: () => void;
+  left?: ReactNode;
   right?: ReactNode;
-  accent?: "amber" | "good" | "bad";
+  accent?: "amber" | "good" | "bad" | "default";
 }
 
-export function StatusBar({ title, subtitle, onBack, right, accent = "amber" }: StatusBarProps) {
+export function StatusBar({ title, subtitle, onBack, left, right, accent = "amber" }: StatusBarProps) {
   const accentColor =
-    accent === "good" ? "text-good" : accent === "bad" ? "text-bad" : "text-amber";
+    accent === "good" ? "text-good" : accent === "bad" ? "text-bad" : accent === "default" ? "text-amber" : "text-amber";
   return (
     <header className="flex items-center gap-4 px-6 py-4 hairline-top border-b border-hairline">
       <div className="flex items-center gap-3">
@@ -42,6 +43,8 @@ export function StatusBar({ title, subtitle, onBack, right, accent = "amber" }: 
       </div>
 
       <div className="mx-1 h-8 w-px bg-line" />
+
+      {left ? <div className="flex shrink-0 items-center gap-2">{left}</div> : null}
 
       {onBack ? (
         <motion.button

@@ -31,6 +31,7 @@ export interface ReportRecord {
   reason: ReportReason;
   location: string;
   time: string;
+  note: string;
 }
 
 export interface PostTripConfirm {
@@ -55,6 +56,13 @@ export interface TripMeta {
   speedLimit: number;
 }
 
+export interface InspectionSnapshot {
+  name: string;
+  result: InspectionResult;
+  description: string;
+  photo: string | null;
+}
+
 export interface TripRecord {
   tripId: string;
   routeName: string;
@@ -65,10 +73,11 @@ export interface TripRecord {
   endTime: string;
   durationMin: number;
   distanceKm: number;
-  status: string;
-  inspections: { name: string; result: InspectionResult; description: string }[];
+  status: "completed" | "in-progress";
+  inspections: InspectionSnapshot[];
   reports: ReportRecord[];
   postTripConfirm: PostTripConfirm;
+  createdAt: number;
 }
 
 export interface ReportOption {
@@ -122,10 +131,15 @@ export function nowHM() {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function createMockTrip(): TripMeta {
+export function createTripId(dateStr?: string, seq = 1) {
+  const base = (dateStr ?? todayStr()).replace(/-/g, "");
+  return `T${base}-${pad(seq)}`;
+}
+
+export function createMockTrip(seq = 1): TripMeta {
   const date = todayStr();
   return {
-    tripId: `T${date.replace(/-/g, "")}-${pad(1)}`,
+    tripId: createTripId(date, seq),
     routeName: "3号线 · 阳光小学环线",
     vehicleNo: "苏B·1234校",
     driverName: "王建国",
