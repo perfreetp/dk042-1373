@@ -12,6 +12,7 @@ import {
   createInspections,
   nowHM,
   createTripId,
+  createUniqueTripId,
 } from "@/data/trip";
 import { formatHM, loadRecords, saveRecord } from "@/lib/utils";
 
@@ -188,14 +189,24 @@ interface TripState {
 function computeNextSeq() {
   const list = loadAllTyped();
   const today = todayStr();
-  const todays = list.filter((r) => r.date === today);
-  return todays.length + 1;
+  const pattern = /^T(\d{8})-(\d+)/;
+  let maxSeq = 0;
+  for (const r of list) {
+    if (r.date !== today) continue;
+    const m = r.tripId.match(pattern);
+    if (m && m[2]) {
+      const seq = parseInt(m[2], 10);
+      if (!Number.isNaN(seq) && seq > maxSeq) maxSeq = seq;
+    }
+  }
+  return maxSeq + 1;
 }
 
 function freshTripData() {
   const seq = computeNextSeq();
+  const base = createMockTrip(seq);
   return {
-    trip: createMockTrip(seq),
+    trip: { ...base, tripId: createUniqueTripId(base.date, seq) },
     inspections: createInspections(),
     reports: [] as ReportRecord[],
     postTrip: {
@@ -316,7 +327,7 @@ export const useTripStore = create<TripState>((set, get) => {
         lastRecord: record,
         drivingEndTs: endTs,
         scene: "completed",
-        recordList: [record, ...loadAllTyped()],
+        recordList: loadAllTyped(),
       });
     },
 

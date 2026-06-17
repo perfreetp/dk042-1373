@@ -131,9 +131,20 @@ export function nowHM() {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function createTripId(dateStr?: string, seq = 1) {
+export function createTripId(dateStr?: string, seq = 1, unique = false) {
   const base = (dateStr ?? todayStr()).replace(/-/g, "");
-  return `T${base}-${pad(seq)}`;
+  const seqPart = pad(seq);
+  if (!unique) return `T${base}-${seqPart}`;
+  const suffix = (crypto?.randomUUID?.() ?? Math.random().toString(16))
+    .replace(/-/g, "")
+    .slice(0, 6)
+    .toLowerCase()
+    .padEnd(6, "0");
+  return `T${base}-${seqPart}-${suffix}`;
+}
+
+export function createUniqueTripId(dateStr?: string, seq = 1) {
+  return createTripId(dateStr, seq, true);
 }
 
 export function createMockTrip(seq = 1): TripMeta {

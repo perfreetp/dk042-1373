@@ -51,20 +51,38 @@ export function getLocation(): Promise<string> {
 
 const RECORDS_KEY = "schoolbus_trip_records";
 
-export function loadRecords(): unknown[] {
+type AnyRecord = { tripId?: string; createdAt?: number };
+
+function sortByCreatedAtDesc(list: AnyRecord[]) {
+  return [...list].sort((a, b) => {
+    const at = typeof a.createdAt === "number" ? a.createdAt : 0;
+    const bt = typeof b.createdAt === "number" ? b.createdAt : 0;
+    if (bt !== at) return bt - at;
+    return (a.tripId ?? "").localeCompare(b.tripId ?? "");
+  });
+}
+
+export function loadRecords<T extends AnyRecord = AnyRecord>(): T[] {
   try {
     const raw = localStorage.getItem(RECORDS_KEY);
-    return raw ? (JSON.parse(raw) as unknown[]) : [];
+    const list = raw ? (JSON.parse(raw) as T[]) : [];
+    return sortByCreatedAtDesc(Array.isArray(list) ? list : []) as T[];
   } catch {
     return [];
   }
 }
 
-export function saveRecord(record: unknown) {
+export function saveRecord<T extends AnyRecord>(record: T) {
   try {
-    const list = loadRecords();
-    list.unshift(record);
-    localStorage.setItem(RECORDS_KEY, JSON.stringify(list.slice(0, 50)));
+    const list = loadRecords<T>();
+    const idx = list.findIndex((r) => r.tripId && record.tripId && r.tripId === record.tripId);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...record };
+    } else {
+      list.unshift(record);
+    }
+    const sorted = sortByCreatedAtDesc(list);
+    localStorage.setItem(RECORDS_KEY, JSON.stringify(sorted.slice(0, 50)));
   } catch {
     // ignore persistence errors in demo
   }
