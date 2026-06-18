@@ -28,6 +28,14 @@ export type ReportReason = "堵车" | "临时封路" | "事故" | "偏离路线"
 
 export type FollowUpStatus = "pending" | "contacted" | "closed";
 
+export interface StatusHistoryEntry {
+  timestamp: number;
+  fromStatus: FollowUpStatus | null;
+  toStatus: FollowUpStatus;
+  note: string;
+  operator: string;
+}
+
 export const FOLLOW_UP_STATUS_META: Record<
   FollowUpStatus,
   { label: string; tone: "amber" | "good" | "bad" }
@@ -45,6 +53,7 @@ export interface ReportRecord {
   note: string;
   status: FollowUpStatus;
   updatedAt?: number;
+  statusHistory: StatusHistoryEntry[];
 }
 
 export interface PostTripConfirm {
@@ -76,6 +85,7 @@ export interface InspectionSnapshot {
   photo: string | null;
   status: FollowUpStatus;
   updatedAt?: number;
+  statusHistory: StatusHistoryEntry[];
 }
 
 export interface TripRecord {

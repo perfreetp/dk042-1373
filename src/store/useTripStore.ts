@@ -46,8 +46,10 @@ function buildSeedRecords(): TripRecord[] {
   };
 
   const norm = (
-    arr: Array<Omit<import("@/data/trip").InspectionSnapshot, "status" | "updatedAt">>,
-  ) => arr.map((i) => ({ ...i, status: "pending" as const, updatedAt: undefined }));
+    arr: Array<Omit<import("@/data/trip").InspectionSnapshot, "status" | "updatedAt" | "statusHistory">>,
+  ) => arr.map((i) => ({ ...i, status: "pending" as const, updatedAt: undefined, statusHistory: [] as import("@/data/trip").StatusHistoryEntry[] }));
+
+  const now = Date.now();
 
   return [
     {
@@ -72,7 +74,7 @@ function buildSeedRecords(): TripRecord[] {
       postTripConfirm: defaultConfirm,
       createdAt: Date.now() - 1000 * 60 * 60 * 2,
       driverHandoverNote: "",
-      __schema: 1,
+      __schema: 2,
     },
     {
       tripId: createTripId(yesterday, 2),
@@ -85,13 +87,36 @@ function buildSeedRecords(): TripRecord[] {
       durationMin: 58,
       distanceKm: 13.2,
       status: "completed",
-      inspections: norm([
-        { name: "安全带", result: "normal", description: "", photo: null },
-        { name: "灭火器", result: "abnormal", description: "压力指针在红区，已上报车队更换", photo: null },
-        { name: "车门", result: "normal", description: "", photo: null },
-        { name: "摄像头", result: "normal", description: "", photo: null },
-        { name: "定位状态", result: "normal", description: "", photo: null },
-      ]),
+      inspections: [
+        { name: "安全带", result: "normal", description: "", photo: null, status: "pending" as const, statusHistory: [] },
+        {
+          name: "灭火器",
+          result: "abnormal",
+          description: "压力指针在红区，已上报车队更换",
+          photo: null,
+          status: "contacted" as const,
+          updatedAt: now - 1000 * 60 * 30,
+          statusHistory: [
+            {
+              timestamp: now - 1000 * 60 * 60 * 4,
+              fromStatus: null,
+              toStatus: "pending",
+              note: "系统自动创建",
+              operator: "system",
+            },
+            {
+              timestamp: now - 1000 * 60 * 30,
+              fromStatus: "pending",
+              toStatus: "contacted",
+              note: "已联系供应商，明日上午送新灭火器到校",
+              operator: "车队主管",
+            },
+          ],
+        },
+        { name: "车门", result: "normal", description: "", photo: null, status: "pending" as const, statusHistory: [] },
+        { name: "摄像头", result: "normal", description: "", photo: null, status: "pending" as const, statusHistory: [] },
+        { name: "定位状态", result: "normal", description: "", photo: null, status: "pending" as const, statusHistory: [] },
+      ],
       reports: [
         {
           id: "seedR1",
@@ -99,13 +124,30 @@ function buildSeedRecords(): TripRecord[] {
           location: "31.4952, 120.3012",
           time: "07:22",
           note: "文三路与古墩路交叉口早高峰拥堵约 8 分钟",
-          status: "pending",
+          status: "closed",
+          updatedAt: now - 1000 * 60 * 60 * 2,
+          statusHistory: [
+            {
+              timestamp: now - 1000 * 60 * 60 * 6,
+              fromStatus: null,
+              toStatus: "pending",
+              note: "系统自动创建",
+              operator: "system",
+            },
+            {
+              timestamp: now - 1000 * 60 * 60 * 2,
+              fromStatus: "pending",
+              toStatus: "closed",
+              note: "已核实，属正常早高峰拥堵，无异常",
+              operator: "车队主管",
+            },
+          ],
         },
       ],
       postTripConfirm: defaultConfirm,
       createdAt: Date.now() - 1000 * 60 * 60 * 24,
       driverHandoverNote: "昨日灭火器已通知采购更换，请今日接班司机确认新灭火器是否已安装。",
-      __schema: 1,
+      __schema: 2,
     },
     {
       tripId: createTripId(yesterday, 3),
@@ -118,13 +160,28 @@ function buildSeedRecords(): TripRecord[] {
       durationMin: 55,
       distanceKm: 15.6,
       status: "completed",
-      inspections: norm([
-        { name: "安全带", result: "normal", description: "", photo: null },
-        { name: "灭火器", result: "normal", description: "", photo: null },
-        { name: "车门", result: "abnormal", description: "后车门开启有轻微异响，待维修", photo: null },
-        { name: "摄像头", result: "normal", description: "", photo: null },
-        { name: "定位状态", result: "normal", description: "", photo: null },
-      ]),
+      inspections: [
+        { name: "安全带", result: "normal", description: "", photo: null, status: "pending" as const, statusHistory: [] },
+        { name: "灭火器", result: "normal", description: "", photo: null, status: "pending" as const, statusHistory: [] },
+        {
+          name: "车门",
+          result: "abnormal",
+          description: "后车门开启有轻微异响，待维修",
+          photo: null,
+          status: "pending" as const,
+          statusHistory: [
+            {
+              timestamp: now - 1000 * 60 * 60 * 8,
+              fromStatus: null,
+              toStatus: "pending",
+              note: "系统自动创建",
+              operator: "system",
+            },
+          ],
+        },
+        { name: "摄像头", result: "normal", description: "", photo: null, status: "pending" as const, statusHistory: [] },
+        { name: "定位状态", result: "normal", description: "", photo: null, status: "pending" as const, statusHistory: [] },
+      ],
       reports: [
         {
           id: "seedR2",
@@ -133,6 +190,15 @@ function buildSeedRecords(): TripRecord[] {
           time: "16:55",
           note: "西园三路市政封路，绕行振华路约 5 分钟",
           status: "pending",
+          statusHistory: [
+            {
+              timestamp: now - 1000 * 60 * 60 * 7,
+              fromStatus: null,
+              toStatus: "pending",
+              note: "系统自动创建",
+              operator: "system",
+            },
+          ],
         },
       ],
       postTripConfirm: {
@@ -142,7 +208,7 @@ function buildSeedRecords(): TripRecord[] {
       },
       createdAt: Date.now() - 1000 * 60 * 60 * 24 - 1000 * 60 * 60 * 3,
       driverHandoverNote: "后车门异响已登记报修，下趟请提醒学生下车时注意站稳再起身。",
-      __schema: 1,
+      __schema: 2,
     },
   ] as TripRecord[];
 }
@@ -166,6 +232,7 @@ function ensureSeeded(): TripRecord[] {
 interface TripState {
   scene: Scene;
   viewMode: "driver" | "supervisor" | "list" | "detail";
+  previousViewMode: "driver" | "supervisor" | "list" | "detail";
   focusedRecordId: string | null;
   trip: TripMeta;
   inspections: InspectionItem[];
@@ -241,13 +308,19 @@ export const useTripStore = create<TripState>((set, get) => {
   return {
     scene: "pre-trip",
     viewMode: "driver",
+    previousViewMode: "list",
     focusedRecordId: null,
     ...freshTripData(),
     lastRecord: initialRecords[0] ?? null,
     recordList: initialRecords,
 
     setViewMode: (mode) => set({ viewMode: mode }),
-    openRecordDetail: (tripId) => set({ focusedRecordId: tripId, viewMode: tripId ? "detail" : "list" }),
+    openRecordDetail: (tripId) =>
+      set((s) =>
+        tripId
+          ? { focusedRecordId: tripId, previousViewMode: s.viewMode, viewMode: "detail" }
+          : { focusedRecordId: null, viewMode: s.previousViewMode },
+      ),
     refreshRecordList: () => set({ recordList: loadAllTyped() }),
 
     setInspectionResult: (id, result) =>
@@ -299,6 +372,7 @@ export const useTripStore = create<TripState>((set, get) => {
             time: nowHM(),
             note,
             status: "pending",
+            statusHistory: [],
           },
         ],
       })),
@@ -332,6 +406,7 @@ export const useTripStore = create<TripState>((set, get) => {
           description: i.description,
           photo: i.photo,
           status: "pending",
+          statusHistory: [],
         })),
         reports: s.reports,
         postTripConfirm: s.postTrip,

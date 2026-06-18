@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { InspectionSnapshot, ReportRecord } from "@/data/trip";
+import type { InspectionSnapshot, ReportRecord, StatusHistoryEntry } from "@/data/trip";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -51,7 +51,7 @@ export function getLocation(): Promise<string> {
 }
 
 const RECORDS_KEY = "schoolbus_trip_records";
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 type AnyRecord = { tripId?: string; createdAt?: number; __schema?: number };
 type MaybeTripRecord = AnyRecord & {
@@ -59,6 +59,10 @@ type MaybeTripRecord = AnyRecord & {
   reports?: unknown;
   driverHandoverNote?: unknown;
 };
+
+function hasStatusHistory(v: unknown): v is { statusHistory: unknown } {
+  return typeof v === "object" && v !== null && "statusHistory" in v;
+}
 
 function sortByCreatedAtDesc(list: AnyRecord[]) {
   return [...list].sort((a, b) => {
@@ -99,7 +103,13 @@ function dedupeById<T extends AnyRecord>(list: T[]): T[] {
     if (isInspectionArray(eInsp) && isInspectionArray(rInsp)) {
       m.inspections = eInsp.map((ei) => {
         const ri = rInsp.find((x) => x.name === ei.name);
-        return { ...ei, ...ri };
+        if (!ri) return ei;
+        const eiTs = typeof ei.updatedAt === "number" ? ei.updatedAt : 0;
+        const riTs = typeof ri.updatedAt === "number" ? ri.updatedAt : 0;
+        if (riTs >= eiTs) {
+          return { ...ei, ...ri };
+        }
+        return { ...ri, ...ei };
       });
     }
     const eRpts = e.reports;
@@ -107,7 +117,13 @@ function dedupeById<T extends AnyRecord>(list: T[]): T[] {
     if (isReportArray(eRpts) && isReportArray(rRpts)) {
       m.reports = eRpts.map((er) => {
         const rri = rRpts.find((x) => x.id === er.id);
-        return { ...er, ...rri };
+        if (!rri) return er;
+        const erTs = typeof er.updatedAt === "number" ? er.updatedAt : 0;
+        const rriTs = typeof rri.updatedAt === "number" ? rri.updatedAt : 0;
+        if (rriTs >= erTs) {
+          return { ...er, ...rri };
+        }
+        return { ...rri, ...er };
       });
     }
     byId.set(r.tripId, merged);
@@ -122,18 +138,32 @@ function migrate<T extends AnyRecord>(raw: T[]): T[] {
     const out = { ...r, __schema: SCHEMA_VERSION } as T;
     const m = out as unknown as MaybeTripRecord;
     if (isInspectionArray(m.inspections)) {
-      m.inspections = m.inspections.map((i) => ({
-        status: "pending" as const,
-        updatedAt: undefined,
-        ...i,
-      }));
+      m.inspections = m.inspections.map((i) => {
+        const base: InspectionSnapshot = {
+          status: "pending" as const,
+          updatedAt: undefined,
+          statusHistory: [] as StatusHistoryEntry[],
+          ...i,
+        };
+        if (!hasStatusHistory(base) || !Array.isArray(base.statusHistory)) {
+          base.statusHistory = [];
+        }
+        return base;
+      });
     }
     if (isReportArray(m.reports)) {
-      m.reports = m.reports.map((rp) => ({
-        status: "pending" as const,
-        updatedAt: undefined,
-        ...rp,
-      }));
+      m.reports = m.reports.map((rp) => {
+        const base: ReportRecord = {
+          status: "pending" as const,
+          updatedAt: undefined,
+          statusHistory: [] as StatusHistoryEntry[],
+          ...rp,
+        };
+        if (!hasStatusHistory(base) || !Array.isArray(base.statusHistory)) {
+          base.statusHistory = [];
+        }
+        return base;
+      });
     }
     if (typeof m.driverHandoverNote !== "string") {
       m.driverHandoverNote = "";

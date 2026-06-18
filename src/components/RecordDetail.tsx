@@ -12,6 +12,7 @@ import {
   Save,
   Timer,
   UserRound,
+  X,
   ZoomIn,
 } from "lucide-react";
 import { useState } from "react";
@@ -23,6 +24,7 @@ import {
   type InspectionResult,
   type InspectionSnapshot,
   type ReportRecord,
+  type StatusHistoryEntry,
   type TripRecord,
 } from "@/data/trip";
 import { useTripStore } from "@/store/useTripStore";
@@ -54,6 +56,16 @@ export function RecordDetail({ record }: { record: TripRecord }) {
   const [handover, setHandover] = useState(record.driverHandoverNote ?? "");
   const [handoverSaving, setHandoverSaving] = useState(false);
 
+  const [statusModal, setStatusModal] = useState<{
+    type: "inspection" | "report";
+    index: number;
+    fromStatus: FollowUpStatus | null;
+    toStatus: FollowUpStatus;
+    itemName: string;
+  } | null>(null);
+  const [statusNote, setStatusNote] = useState("");
+  const [statusSubmitting, setStatusSubmitting] = useState(false);
+
   const isSupervisor = viewMode === "supervisor";
 
   function saveHandover() {
@@ -62,18 +74,59 @@ export function RecordDetail({ record }: { record: TripRecord }) {
     window.setTimeout(() => setHandoverSaving(false), 400);
   }
 
-  function setInspectionStatus(idx: number, status: FollowUpStatus) {
-    const next = record.inspections.map((i, k) =>
-      k === idx ? { ...i, status, updatedAt: Date.now() } : i,
-    );
-    updateRecord(record.tripId, { inspections: next });
+  function openStatusModal(
+    type: "inspection" | "report",
+    index: number,
+    fromStatus: FollowUpStatus | null,
+    toStatus: FollowUpStatus,
+    itemName: string,
+  ) {
+    setStatusModal({ type, index, fromStatus, toStatus, itemName });
+    setStatusNote("");
   }
 
-  function setReportStatus(idx: number, status: FollowUpStatus) {
-    const next = record.reports.map((r, k) =>
-      k === idx ? { ...r, status, updatedAt: Date.now() } : r,
-    );
-    updateRecord(record.tripId, { reports: next });
+  function handleConfirmStatusChange() {
+    if (!statusModal) return;
+    setStatusSubmitting(true);
+    const ts = Date.now();
+    const entry: StatusHistoryEntry = {
+      timestamp: ts,
+      fromStatus: statusModal.fromStatus,
+      toStatus: statusModal.toStatus,
+      note: statusNote.trim(),
+      operator: "车队主管",
+    };
+
+    if (statusModal.type === "inspection") {
+      const next = record.inspections.map((i, k) => {
+        if (k !== statusModal.index) return i;
+        const history = Array.isArray(i.statusHistory) ? i.statusHistory : [];
+        return {
+          ...i,
+          status: statusModal.toStatus,
+          updatedAt: ts,
+          statusHistory: [...history, entry],
+        };
+      });
+      updateRecord(record.tripId, { inspections: next });
+    } else {
+      const next = record.reports.map((r, k) => {
+        if (k !== statusModal.index) return r;
+        const history = Array.isArray(r.statusHistory) ? r.statusHistory : [];
+        return {
+          ...r,
+          status: statusModal.toStatus,
+          updatedAt: ts,
+          statusHistory: [...history, entry],
+        };
+      });
+      updateRecord(record.tripId, { reports: next });
+    }
+
+    window.setTimeout(() => {
+      setStatusModal(null);
+      setStatusSubmitting(false);
+    }, 300);
   }
 
   return (
@@ -243,7 +296,9 @@ export function RecordDetail({ record }: { record: TripRecord }) {
                       <InspectionCard
                         key={idx}
                         inspection={i}
-                        onSetStatus={(s) => setInspectionStatus(srcIdx, s)}
+                        onSetStatus={(s) =>
+                          openStatusModal("inspection", srcIdx, i.status, s, i.name)
+                        }
                         isSupervisor={isSupervisor}
                         onPreview={(p) => setPreviewPhoto(p)}
                       />
@@ -262,7 +317,9 @@ export function RecordDetail({ record }: { record: TripRecord }) {
                     key={r.id}
                     report={r}
                     isSupervisor={isSupervisor}
-                    onSetStatus={(s) => setReportStatus(idx, s)}
+                    onSetStatus={(s) =>
+                      openStatusModal("report", idx, r.status, s, r.reason)
+                    }
                   />
                 ))}
               </ol>
@@ -290,6 +347,87 @@ export function RecordDetail({ record }: { record: TripRecord }) {
             />
           </motion.div>
         ) : null}
+
+        {statusModal ? (
+          <motion.div
+            key="status-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setStatusModal(null)}
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-ink/85 p-6 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.94, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.94, opacity: 0, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md rounded-2xl border border-line bg-panel p-5 shadow-glow"
+            >
+              <div className="mb-4 flex items-start justify-between">
+                <div>
+                  <div className="font-display text-lg font-semibold text-slate-100">
+                    修改处理状态
+                  </div>
+                  <div className="mt-0.5 text-xs text-slatey">{statusModal.itemName}</div>
+                </div>
+                <button
+                  onClick={() => setStatusModal(null)}
+                  className="rounded-lg p-1 text-slatey hover:text-slate-100"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mb-3 flex items-center gap-2">
+                {statusModal.fromStatus ? (
+                  <StatusChip tone={FOLLOW_UP_STATUS_META[statusModal.fromStatus].tone}>
+                    {FOLLOW_UP_STATUS_META[statusModal.fromStatus].label}
+                  </StatusChip>
+                ) : null}
+                <span className="text-slatey">→</span>
+                <StatusChip tone={FOLLOW_UP_STATUS_META[statusModal.toStatus].tone}>
+                  {FOLLOW_UP_STATUS_META[statusModal.toStatus].label}
+                </StatusChip>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs text-slatey">处理说明（可选）</label>
+                <textarea
+                  value={statusNote}
+                  onChange={(e) => setStatusNote(e.target.value)}
+                  rows={3}
+                  placeholder="例如：已联系司机了解情况、已安排维修、确认无异常等"
+                  className="w-full resize-none rounded-2xl border border-line bg-ink/60 p-3 text-sm text-slate-100 placeholder:text-slatey-dim focus:border-amber/60 focus:outline-none focus:ring-1 focus:ring-amber/40"
+                />
+              </div>
+
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  onClick={() => setStatusModal(null)}
+                  className="rounded-xl border border-line bg-ink/40 px-4 py-2 text-xs text-slatey hover:text-slate-100"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleConfirmStatusChange}
+                  disabled={statusSubmitting}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-amber bg-amber/10 px-4 py-2 text-xs font-display font-semibold text-amber shadow-glow disabled:opacity-50"
+                >
+                  {statusSubmitting ? (
+                    <>
+                      <Save className="h-3.5 w-3.5 animate-pulse" /> 保存中…
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-3.5 w-3.5" /> 确认修改
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
       </AnimatePresence>
     </>
   );
@@ -306,55 +444,95 @@ function InspectionCard({
   onSetStatus: (s: FollowUpStatus) => void;
   onPreview: (url: string) => void;
 }) {
+  const history = Array.isArray(inspection.statusHistory) ? inspection.statusHistory : [];
+  const nonSystemHistory = history.filter((h) => h.operator !== "system");
+
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-bad/30 bg-bad/[0.04] p-4 sm:flex-row sm:items-center sm:gap-4">
-      {inspection.photo ? (
-        <button
-          onClick={() => onPreview(inspection.photo!)}
-          className="group relative h-24 w-36 shrink-0 overflow-hidden rounded-xl border border-bad/40"
-          title="点击查看大图"
-        >
-          <img src={inspection.photo} alt={`${inspection.name} 异常`} className="h-full w-full object-cover" />
-          <div className="absolute inset-0 flex items-center justify-center bg-ink/0 text-transparent transition group-hover:bg-ink/50 group-hover:text-white">
-            <ZoomIn className="h-5 w-5" />
+    <div className="flex flex-col gap-3 rounded-2xl border border-bad/30 bg-bad/[0.04] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+        {inspection.photo ? (
+          <button
+            onClick={() => onPreview(inspection.photo!)}
+            className="group relative h-24 w-36 shrink-0 overflow-hidden rounded-xl border border-bad/40"
+            title="点击查看大图"
+          >
+            <img src={inspection.photo} alt={`${inspection.name} 异常`} className="h-full w-full object-cover" />
+            <div className="absolute inset-0 flex items-center justify-center bg-ink/0 text-transparent transition group-hover:bg-ink/50 group-hover:text-white">
+              <ZoomIn className="h-5 w-5" />
+            </div>
+          </button>
+        ) : (
+          <div className="flex h-24 w-36 shrink-0 items-center justify-center rounded-xl border border-dashed border-line bg-panel-2/40 text-xs text-slatey">
+            未拍照，仅文字
           </div>
-        </button>
-      ) : (
-        <div className="flex h-24 w-36 shrink-0 items-center justify-center rounded-xl border border-dashed border-line bg-panel-2/40 text-xs text-slatey">
-          未拍照，仅文字
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-bad">{inspection.name} · 异常</div>
+          <div className="mt-1 text-xs text-slate-100">
+            {inspection.description || "（未填写描述）"}
+          </div>
+          {isSupervisor ? (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {STATUS_ORDER.map((s) => {
+                const meta = FOLLOW_UP_STATUS_META[s];
+                const active = inspection.status === s;
+                return (
+                  <button
+                    key={s}
+                    onClick={() => onSetStatus(s)}
+                    className={cn(
+                      "rounded-md border px-2 py-0.5 text-[0.7rem] font-display transition",
+                      statusBtnClass(active, meta.tone),
+                    )}
+                  >
+                    {meta.label}
+                  </button>
+                );
+              })}
+              {inspection.updatedAt ? (
+                <span className="ml-1 text-[0.65rem] text-slatey">
+                  最后更新 {new Date(inspection.updatedAt).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
-      )}
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-semibold text-bad">{inspection.name} · 异常</div>
-        <div className="mt-1 text-xs text-slate-100">
-          {inspection.description || "（未填写描述）"}
-        </div>
-        {isSupervisor ? (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {STATUS_ORDER.map((s) => {
-              const meta = FOLLOW_UP_STATUS_META[s];
-              const active = inspection.status === s;
+      </div>
+      {nonSystemHistory.length > 0 ? (
+        <div className="mt-1 rounded-xl border border-hairline bg-panel-2/30 p-3">
+          <div className="mb-2 flex items-center gap-1.5 text-[0.7rem] text-slatey">
+            <Clock className="h-3.5 w-3.5" /> 处理日志
+          </div>
+          <ol className="relative ml-2 border-l border-line/60 pl-4">
+            {nonSystemHistory.map((h, idx) => {
+              const toMeta = FOLLOW_UP_STATUS_META[h.toStatus];
               return (
-                <button
-                  key={s}
-                  onClick={() => onSetStatus(s)}
-                  className={cn(
-                    "rounded-md border px-2 py-0.5 text-[0.7rem] font-display transition",
-                    statusBtnClass(active, meta.tone),
-                  )}
-                >
-                  {meta.label}
-                </button>
+                <li key={idx} className="relative mb-3 last:mb-0">
+                  <span className="absolute -left-[21px] top-1 flex h-3 w-3 items-center justify-center rounded-full border border-amber bg-amber" />
+                  <div className="flex flex-wrap items-center gap-1.5 text-[0.7rem]">
+                    <span className="num text-slatey">
+                      {new Date(h.timestamp).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    <span className="text-slate-100">{h.operator}</span>
+                    {h.fromStatus ? (
+                      <StatusChip tone={FOLLOW_UP_STATUS_META[h.fromStatus].tone} className="!py-0 !px-1.5 !text-[0.65rem]">
+                        {FOLLOW_UP_STATUS_META[h.fromStatus].label}
+                      </StatusChip>
+                    ) : null}
+                    <span className="text-slatey">→</span>
+                    <StatusChip tone={toMeta.tone} className="!py-0 !px-1.5 !text-[0.65rem]">
+                      {toMeta.label}
+                    </StatusChip>
+                  </div>
+                  {h.note ? (
+                    <div className="mt-1 text-xs text-slate-200">{h.note}</div>
+                  ) : null}
+                </li>
               );
             })}
-            {inspection.updatedAt ? (
-              <span className="ml-1 text-[0.65rem] text-slatey">
-                最后更新 {new Date(inspection.updatedAt).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+          </ol>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -368,6 +546,9 @@ function ReportTimelineItem({
   isSupervisor: boolean;
   onSetStatus: (s: FollowUpStatus) => void;
 }) {
+  const history = Array.isArray(report.statusHistory) ? report.statusHistory : [];
+  const nonSystemHistory = history.filter((h) => h.operator !== "system");
+
   return (
     <motion.li
       initial={{ opacity: 0, x: -6 }}
@@ -416,6 +597,41 @@ function ReportTimelineItem({
           <div className="mt-2 flex items-start gap-1.5 rounded-xl border border-hairline bg-ink/40 p-2.5 text-xs text-slate-200">
             <MessageSquareText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber" />
             <span className="flex-1">{report.note}</span>
+          </div>
+        ) : null}
+        {nonSystemHistory.length > 0 ? (
+          <div className="mt-3 rounded-xl border border-hairline bg-panel-2/30 p-3">
+            <div className="mb-2 flex items-center gap-1.5 text-[0.7rem] text-slatey">
+              <Clock className="h-3.5 w-3.5" /> 处理日志
+            </div>
+            <ol className="relative ml-2 border-l border-line/60 pl-4">
+              {nonSystemHistory.map((h, idx) => {
+                const toMeta = FOLLOW_UP_STATUS_META[h.toStatus];
+                return (
+                  <li key={idx} className="relative mb-3 last:mb-0">
+                    <span className="absolute -left-[21px] top-1 flex h-3 w-3 items-center justify-center rounded-full border border-amber bg-amber" />
+                    <div className="flex flex-wrap items-center gap-1.5 text-[0.7rem]">
+                      <span className="num text-slatey">
+                        {new Date(h.timestamp).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      <span className="text-slate-100">{h.operator}</span>
+                      {h.fromStatus ? (
+                        <StatusChip tone={FOLLOW_UP_STATUS_META[h.fromStatus].tone} className="!py-0 !px-1.5 !text-[0.65rem]">
+                          {FOLLOW_UP_STATUS_META[h.fromStatus].label}
+                        </StatusChip>
+                      ) : null}
+                      <span className="text-slatey">→</span>
+                      <StatusChip tone={toMeta.tone} className="!py-0 !px-1.5 !text-[0.65rem]">
+                        {toMeta.label}
+                      </StatusChip>
+                    </div>
+                    {h.note ? (
+                      <div className="mt-1 text-xs text-slate-200">{h.note}</div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ol>
           </div>
         ) : null}
       </div>

@@ -1,19 +1,22 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
+  BookmarkPlus,
   Bus,
   CalendarDays,
   ClipboardList,
   Clock,
   FileCheck2,
+  FileEdit,
   Filter,
   MapPin,
   Search,
   UserRound,
+  X,
 } from "lucide-react";
 import { useTripStore } from "@/store/useTripStore";
-import { type TripRecord, type InspectionResult } from "@/data/trip";
+import { type TripRecord, type InspectionResult, FOLLOW_UP_STATUS_META } from "@/data/trip";
 import { cn } from "@/lib/utils";
 import { StatusBar } from "@/components/StatusBar";
 import { SectionLabel, StatusChip } from "@/components/StatusChip";
@@ -37,10 +40,44 @@ const ANOMALY_TYPES = [
   { key: "inspection", label: "检查异常" },
   { key: "report", label: "途中报备" },
   { key: "post-incomplete", label: "收车遗漏" },
+  { key: "unclosed", label: "未闭环" },
 ] as const;
 
 type TimeRangeKey = (typeof TIME_RANGES)[number]["key"];
 type AnomalyTypeKey = (typeof ANOMALY_TYPES)[number]["key"];
+
+interface FilterPreset {
+  id: string;
+  name: string;
+  timeRange: TimeRangeKey;
+  anomalyType: AnomalyTypeKey;
+}
+
+const PRESET_KEY = "schoolbus_filter_presets";
+
+function loadPresets(): FilterPreset[] {
+  try {
+    const raw = localStorage.getItem(PRESET_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePresets(presets: FilterPreset[]) {
+  try {
+    localStorage.setItem(PRESET_KEY, JSON.stringify(presets));
+  } catch {
+    // ignore
+  }
+}
+
+const DEFAULT_PRESETS: FilterPreset[] = [
+  { id: "preset-1", name: "近 7 天有异常", timeRange: "7d", anomalyType: "inspection" },
+  { id: "preset-2", name: "未闭环报备", timeRange: "7d", anomalyType: "unclosed" },
+];
 
 export default function RecordListPage() {
   const recordList = useTripStore((s) => s.recordList);
@@ -51,6 +88,16 @@ export default function RecordListPage() {
   const [q, setQ] = useState("");
   const [timeRange, setTimeRange] = useState<TimeRangeKey>("all");
   const [anomalyType, setAnomalyType] = useState<AnomalyTypeKey>("all");
+  const [presets, setPresets] = useState<FilterPreset[]>(() => {
+    const existing = loadPresets();
+    return existing.length > 0 ? existing : DEFAULT_PRESETS;
+  });
+  const [showSavePreset, setShowSavePreset] = useState(false);
+  const [presetName, setPresetName] = useState("");
+
+  useEffect(() => {
+    savePresets(presets);
+  }, [presets]);
 
   const focused = useMemo(
     () => (focusedRecordId ? recordList.find((r) => r.tripId === focusedRecordId) ?? null : null),
@@ -78,6 +125,12 @@ export default function RecordListPage() {
           r.postTripConfirm.keysReturned &&
           r.postTripConfirm.noStudentLeft;
         if (postOk) return false;
+      } else if (anomalyType === "unclosed") {
+        const hasUnclosedInspection = r.inspections.some(
+          (i) => i.result === "abnormal" && i.status !== "closed",
+        );
+        const hasUnclosedReport = r.reports.some((rp) => rp.status !== "closed");
+        if (!hasUnclosedInspection && !hasUnclosedReport) return false;
       }
 
       if (!kw) return true;
@@ -94,6 +147,29 @@ export default function RecordListPage() {
         .includes(kw);
     });
   }, [q, recordList, timeRange, anomalyType]);
+
+  function applyPreset(preset: FilterPreset) {
+    setTimeRange(preset.timeRange);
+    setAnomalyType(preset.anomalyType);
+  }
+
+  function saveCurrentPreset() {
+    const name = presetName.trim();
+    if (!name) return;
+    const newPreset: FilterPreset = {
+      id: `preset-${Date.now()}`,
+      name,
+      timeRange,
+      anomalyType,
+    };
+    setPresets((prev) => [...prev, newPreset]);
+    setPresetName("");
+    setShowSavePreset(false);
+  }
+
+  function deletePreset(id: string) {
+    setPresets((prev) => prev.filter((p) => p.id !== id));
+  }
 
   if (viewMode === "detail" && focused) {
     return (
@@ -142,49 +218,127 @@ export default function RecordListPage() {
       />
 
       {showFilters ? (
-        <div className="flex flex-wrap items-center gap-3 border-b border-hairline px-6 py-3">
-          <div className="flex items-center gap-1.5 text-[0.7rem] text-slatey">
-            <Filter className="h-3 w-3" /> 时间
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {TIME_RANGES.map((t) => (
+        <>
+          <div className="flex flex-wrap items-center gap-3 border-b border-hairline px-6 py-3">
+            <div className="flex items-center gap-1.5 text-[0.7rem] text-slatey">
+              <Filter className="h-3 w-3" /> 时间
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {TIME_RANGES.map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => setTimeRange(t.key)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-0.5 text-[0.7rem] font-display transition",
+                    timeRange === t.key
+                      ? "border-amber bg-amber/10 text-amber"
+                      : "border-line bg-ink/40 text-slatey hover:text-slate-100",
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="mx-2 h-5 w-px bg-line" />
+
+            <div className="flex items-center gap-1.5 text-[0.7rem] text-slatey">
+              <Filter className="h-3 w-3" /> 异常
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {ANOMALY_TYPES.map((a) => (
+                <button
+                  key={a.key}
+                  onClick={() => setAnomalyType(a.key)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-0.5 text-[0.7rem] font-display transition",
+                    anomalyType === a.key
+                      ? "border-amber bg-amber/10 text-amber"
+                      : "border-line bg-ink/40 text-slatey hover:text-slate-100",
+                  )}
+                >
+                  {a.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="ml-auto flex items-center gap-2">
               <button
-                key={t.key}
-                onClick={() => setTimeRange(t.key)}
-                className={cn(
-                  "rounded-full border px-2.5 py-0.5 text-[0.7rem] font-display transition",
-                  timeRange === t.key
-                    ? "border-amber bg-amber/10 text-amber"
-                    : "border-line bg-ink/40 text-slatey hover:text-slate-100",
-                )}
+                onClick={() => {
+                  setShowSavePreset(true);
+                  setPresetName("");
+                }}
+                className="inline-flex items-center gap-1 rounded-full border border-amber/40 bg-amber/5 px-2.5 py-0.5 text-[0.7rem] text-amber hover:bg-amber/10"
               >
-                {t.label}
+                <BookmarkPlus className="h-3 w-3" /> 保存筛选
               </button>
-            ))}
+            </div>
           </div>
 
-          <div className="mx-2 h-5 w-px bg-line" />
-
-          <div className="flex items-center gap-1.5 text-[0.7rem] text-slatey">
-            <Filter className="h-3 w-3" /> 异常
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {ANOMALY_TYPES.map((a) => (
+          {showSavePreset ? (
+            <div className="flex items-center gap-2 border-b border-hairline bg-ink/20 px-6 py-2.5">
+              <input
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                placeholder="输入筛选预设名称，如「近 7 天未闭环」"
+                className="h-8 flex-1 rounded-full border border-line bg-ink/60 px-3 text-xs text-slate-100 placeholder:text-slatey focus:border-amber/60 focus:outline-none focus:ring-1 focus:ring-amber/40"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveCurrentPreset();
+                }}
+              />
               <button
-                key={a.key}
-                onClick={() => setAnomalyType(a.key)}
-                className={cn(
-                  "rounded-full border px-2.5 py-0.5 text-[0.7rem] font-display transition",
-                  anomalyType === a.key
-                    ? "border-amber bg-amber/10 text-amber"
-                    : "border-line bg-ink/40 text-slatey hover:text-slate-100",
-                )}
+                onClick={saveCurrentPreset}
+                disabled={!presetName.trim()}
+                className="h-8 rounded-full border border-amber bg-amber/10 px-3 text-xs font-display font-semibold text-amber disabled:opacity-50"
               >
-                {a.label}
+                保存
               </button>
-            ))}
-          </div>
-        </div>
+              <button
+                onClick={() => setShowSavePreset(false)}
+                className="h-8 rounded-full border border-line bg-ink/40 px-3 text-xs text-slatey hover:text-slate-100"
+              >
+                取消
+              </button>
+            </div>
+          ) : null}
+
+          {presets.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-6 py-2.5">
+              <span className="text-[0.7rem] text-slatey">常用筛选：</span>
+              <div className="flex flex-wrap gap-1.5">
+                {presets.map((p) => {
+                  const tr = TIME_RANGES.find((x) => x.key === p.timeRange)!;
+                  const at = ANOMALY_TYPES.find((x) => x.key === p.anomalyType)!;
+                  const active = timeRange === p.timeRange && anomalyType === p.anomalyType;
+                  return (
+                    <div
+                      key={p.id}
+                      className="group inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[0.7rem] transition"
+                      style={{
+                        borderColor: active ? "#FFB300" : "var(--color-line)",
+                        backgroundColor: active ? "rgba(255, 179, 0, 0.1)" : "rgba(0,0,0,0.25)",
+                        color: active ? "#FFB300" : "var(--color-slatey)",
+                      }}
+                    >
+                      <button onClick={() => applyPreset(p)} className="pr-1">
+                        {p.name}
+                        <span className="ml-1 opacity-60">
+                          ({tr.label} · {at.label})
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => deletePreset(p.id)}
+                        className="rounded-full p-0.5 opacity-40 transition hover:opacity-100 hover:text-bad"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       <main className="min-h-0 flex-1 overflow-y-auto scrollbar-thin p-6">
@@ -214,6 +368,8 @@ function RecordCard({ record, index }: { record: TripRecord; index: number }) {
     !record.postTripConfirm.vehicleParked ||
     !record.postTripConfirm.keysReturned ||
     !record.postTripConfirm.noStudentLeft;
+  const handoverNote = record.driverHandoverNote?.trim() ?? "";
+  const notePreview = handoverNote.length > 32 ? handoverNote.slice(0, 32) + "…" : handoverNote;
 
   return (
     <motion.button
@@ -253,6 +409,18 @@ function RecordCard({ record, index }: { record: TripRecord; index: number }) {
               <MapPin className="h-3 w-3" /> {record.distanceKm} km
             </span>
           </div>
+          {notePreview ? (
+            <div
+              className="mt-2 flex items-start gap-1.5 rounded-xl border border-hairline bg-ink/30 p-2 text-xs text-slate-200"
+              title={handoverNote}
+            >
+              <FileEdit className="mt-0.5 h-3 w-3 shrink-0 text-amber" />
+              <span className="line-clamp-1 min-w-0 flex-1">
+                <span className="text-[0.65rem] text-amber">交接：</span>
+                {notePreview}
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
 
