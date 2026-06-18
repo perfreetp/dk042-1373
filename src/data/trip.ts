@@ -26,12 +26,25 @@ export interface InspectionItem {
 
 export type ReportReason = "堵车" | "临时封路" | "事故" | "偏离路线";
 
+export type FollowUpStatus = "pending" | "contacted" | "closed";
+
+export const FOLLOW_UP_STATUS_META: Record<
+  FollowUpStatus,
+  { label: string; tone: "amber" | "good" | "bad" }
+> = {
+  pending: { label: "待跟进", tone: "amber" },
+  contacted: { label: "已联系司机", tone: "amber" },
+  closed: { label: "已闭环", tone: "good" },
+};
+
 export interface ReportRecord {
   id: string;
   reason: ReportReason;
   location: string;
   time: string;
   note: string;
+  status: FollowUpStatus;
+  updatedAt?: number;
 }
 
 export interface PostTripConfirm {
@@ -61,6 +74,8 @@ export interface InspectionSnapshot {
   result: InspectionResult;
   description: string;
   photo: string | null;
+  status: FollowUpStatus;
+  updatedAt?: number;
 }
 
 export interface TripRecord {
@@ -78,6 +93,8 @@ export interface TripRecord {
   reports: ReportRecord[];
   postTripConfirm: PostTripConfirm;
   createdAt: number;
+  driverHandoverNote: string;
+  __schema: number;
 }
 
 export interface ReportOption {

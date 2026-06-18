@@ -7,12 +7,14 @@ import {
   ClipboardList,
   Clock,
   FileCheck2,
+  Filter,
   MapPin,
   Search,
   UserRound,
 } from "lucide-react";
 import { useTripStore } from "@/store/useTripStore";
 import { type TripRecord, type InspectionResult } from "@/data/trip";
+import { cn } from "@/lib/utils";
 import { StatusBar } from "@/components/StatusBar";
 import { SectionLabel, StatusChip } from "@/components/StatusChip";
 import { RecordDetail } from "@/components/RecordDetail";
@@ -23,6 +25,23 @@ const resultMeta: Record<InspectionResult, { label: string; tone: "good" | "bad"
   pending: { label: "未检", tone: "muted" },
 };
 
+const TIME_RANGES = [
+  { key: "1d", label: "近 1 天", days: 1 },
+  { key: "7d", label: "近 7 天", days: 7 },
+  { key: "30d", label: "近 30 天", days: 30 },
+  { key: "all", label: "全部", days: Infinity },
+] as const;
+
+const ANOMALY_TYPES = [
+  { key: "all", label: "全部" },
+  { key: "inspection", label: "检查异常" },
+  { key: "report", label: "途中报备" },
+  { key: "post-incomplete", label: "收车遗漏" },
+] as const;
+
+type TimeRangeKey = (typeof TIME_RANGES)[number]["key"];
+type AnomalyTypeKey = (typeof ANOMALY_TYPES)[number]["key"];
+
 export default function RecordListPage() {
   const recordList = useTripStore((s) => s.recordList);
   const focusedRecordId = useTripStore((s) => s.focusedRecordId);
@@ -30,22 +49,51 @@ export default function RecordListPage() {
   const openRecordDetail = useTripStore((s) => s.openRecordDetail);
 
   const [q, setQ] = useState("");
+  const [timeRange, setTimeRange] = useState<TimeRangeKey>("all");
+  const [anomalyType, setAnomalyType] = useState<AnomalyTypeKey>("all");
 
   const focused = useMemo(
     () => (focusedRecordId ? recordList.find((r) => r.tripId === focusedRecordId) ?? null : null),
     [focusedRecordId, recordList],
   );
 
+  const showFilters = viewMode === "supervisor" || viewMode === "list";
+
   const filtered = useMemo(() => {
+    const now = Date.now();
+    const tr = TIME_RANGES.find((x) => x.key === timeRange)!;
+    const minTs = tr.days === Infinity ? 0 : now - tr.days * 24 * 60 * 60 * 1000;
     const kw = q.trim().toLowerCase();
-    if (!kw) return recordList;
-    return recordList.filter((r) =>
-      [r.date, r.routeName, r.vehicleNo, r.driverName, r.tripId]
+
+    return recordList.filter((r) => {
+      if (r.createdAt && r.createdAt < minTs) return false;
+
+      if (anomalyType === "inspection") {
+        if (r.inspections.filter((i) => i.result === "abnormal").length === 0) return false;
+      } else if (anomalyType === "report") {
+        if (r.reports.length === 0) return false;
+      } else if (anomalyType === "post-incomplete") {
+        const postOk =
+          r.postTripConfirm.vehicleParked &&
+          r.postTripConfirm.keysReturned &&
+          r.postTripConfirm.noStudentLeft;
+        if (postOk) return false;
+      }
+
+      if (!kw) return true;
+      return [
+        r.date,
+        r.routeName,
+        r.vehicleNo,
+        r.driverName,
+        r.tripId,
+        r.driverHandoverNote ?? "",
+      ]
         .join(" ")
         .toLowerCase()
-        .includes(kw),
-    );
-  }, [q, recordList]);
+        .includes(kw);
+    });
+  }, [q, recordList, timeRange, anomalyType]);
 
   if (viewMode === "detail" && focused) {
     return (
@@ -86,12 +134,58 @@ export default function RecordListPage() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="搜索 日期 / 车号 / 司机 / 线路"
+              placeholder={showFilters ? "搜索 日期 / 车号 / 司机 / 线路 / 交接备注" : "搜索 日期 / 车号 / 司机 / 线路"}
               className="h-9 w-full rounded-full border border-line bg-ink/60 pl-8 pr-3 text-xs text-slate-100 placeholder:text-slatey focus:border-amber/60 focus:outline-none focus:ring-1 focus:ring-amber/40"
             />
           </div>
         }
       />
+
+      {showFilters ? (
+        <div className="flex flex-wrap items-center gap-3 border-b border-hairline px-6 py-3">
+          <div className="flex items-center gap-1.5 text-[0.7rem] text-slatey">
+            <Filter className="h-3 w-3" /> 时间
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {TIME_RANGES.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTimeRange(t.key)}
+                className={cn(
+                  "rounded-full border px-2.5 py-0.5 text-[0.7rem] font-display transition",
+                  timeRange === t.key
+                    ? "border-amber bg-amber/10 text-amber"
+                    : "border-line bg-ink/40 text-slatey hover:text-slate-100",
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="mx-2 h-5 w-px bg-line" />
+
+          <div className="flex items-center gap-1.5 text-[0.7rem] text-slatey">
+            <Filter className="h-3 w-3" /> 异常
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {ANOMALY_TYPES.map((a) => (
+              <button
+                key={a.key}
+                onClick={() => setAnomalyType(a.key)}
+                className={cn(
+                  "rounded-full border px-2.5 py-0.5 text-[0.7rem] font-display transition",
+                  anomalyType === a.key
+                    ? "border-amber bg-amber/10 text-amber"
+                    : "border-line bg-ink/40 text-slatey hover:text-slate-100",
+                )}
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <main className="min-h-0 flex-1 overflow-y-auto scrollbar-thin p-6">
         <div className="mx-auto max-w-5xl">

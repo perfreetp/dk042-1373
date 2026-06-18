@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import type { InspectionSnapshot, ReportRecord } from "@/data/trip";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -50,8 +51,14 @@ export function getLocation(): Promise<string> {
 }
 
 const RECORDS_KEY = "schoolbus_trip_records";
+const SCHEMA_VERSION = 1;
 
-type AnyRecord = { tripId?: string; createdAt?: number };
+type AnyRecord = { tripId?: string; createdAt?: number; __schema?: number };
+type MaybeTripRecord = AnyRecord & {
+  inspections?: unknown;
+  reports?: unknown;
+  driverHandoverNote?: unknown;
+};
 
 function sortByCreatedAtDesc(list: AnyRecord[]) {
   return [...list].sort((a, b) => {
@@ -62,11 +69,87 @@ function sortByCreatedAtDesc(list: AnyRecord[]) {
   });
 }
 
+function isInspectionArray(v: unknown): v is InspectionSnapshot[] {
+  return Array.isArray(v);
+}
+
+function isReportArray(v: unknown): v is ReportRecord[] {
+  return Array.isArray(v);
+}
+
+function dedupeById<T extends AnyRecord>(list: T[]): T[] {
+  const byId = new Map<string, T>();
+  for (const r of list) {
+    if (!r.tripId) continue;
+    const existing = byId.get(r.tripId);
+    if (!existing) {
+      byId.set(r.tripId, r);
+      continue;
+    }
+    const merged: T = {
+      ...existing,
+      ...r,
+      __schema: SCHEMA_VERSION,
+    } as T;
+    const m = merged as unknown as MaybeTripRecord;
+    const e = existing as unknown as MaybeTripRecord;
+    const rr = r as unknown as MaybeTripRecord;
+    const eInsp = e.inspections;
+    const rInsp = rr.inspections;
+    if (isInspectionArray(eInsp) && isInspectionArray(rInsp)) {
+      m.inspections = eInsp.map((ei) => {
+        const ri = rInsp.find((x) => x.name === ei.name);
+        return { ...ei, ...ri };
+      });
+    }
+    const eRpts = e.reports;
+    const rRpts = rr.reports;
+    if (isReportArray(eRpts) && isReportArray(rRpts)) {
+      m.reports = eRpts.map((er) => {
+        const rri = rRpts.find((x) => x.id === er.id);
+        return { ...er, ...rri };
+      });
+    }
+    byId.set(r.tripId, merged);
+  }
+  return Array.from(byId.values());
+}
+
+function migrate<T extends AnyRecord>(raw: T[]): T[] {
+  return raw.map((r) => {
+    const currentSchema = r.__schema ?? 0;
+    if (currentSchema >= SCHEMA_VERSION) return r;
+    const out = { ...r, __schema: SCHEMA_VERSION } as T;
+    const m = out as unknown as MaybeTripRecord;
+    if (isInspectionArray(m.inspections)) {
+      m.inspections = m.inspections.map((i) => ({
+        status: "pending" as const,
+        updatedAt: undefined,
+        ...i,
+      }));
+    }
+    if (isReportArray(m.reports)) {
+      m.reports = m.reports.map((rp) => ({
+        status: "pending" as const,
+        updatedAt: undefined,
+        ...rp,
+      }));
+    }
+    if (typeof m.driverHandoverNote !== "string") {
+      m.driverHandoverNote = "";
+    }
+    return out;
+  });
+}
+
 export function loadRecords<T extends AnyRecord = AnyRecord>(): T[] {
   try {
     const raw = localStorage.getItem(RECORDS_KEY);
-    const list = raw ? (JSON.parse(raw) as T[]) : [];
-    return sortByCreatedAtDesc(Array.isArray(list) ? list : []) as T[];
+    let list: T[] = raw ? (JSON.parse(raw) as T[]) : [];
+    if (!Array.isArray(list)) list = [];
+    list = migrate(list);
+    list = dedupeById(list);
+    return sortByCreatedAtDesc(list) as T[];
   } catch {
     return [];
   }

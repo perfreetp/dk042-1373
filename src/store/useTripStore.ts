@@ -45,6 +45,10 @@ function buildSeedRecords(): TripRecord[] {
     noStudentLeft: true,
   };
 
+  const norm = (
+    arr: Array<Omit<import("@/data/trip").InspectionSnapshot, "status" | "updatedAt">>,
+  ) => arr.map((i) => ({ ...i, status: "pending" as const, updatedAt: undefined }));
+
   return [
     {
       tripId: createTripId(today, 2),
@@ -57,16 +61,18 @@ function buildSeedRecords(): TripRecord[] {
       durationMin: 52,
       distanceKm: 14.8,
       status: "completed",
-      inspections: [
+      inspections: norm([
         { name: "安全带", result: "normal", description: "", photo: null },
         { name: "灭火器", result: "normal", description: "", photo: null },
         { name: "车门", result: "normal", description: "", photo: null },
         { name: "摄像头", result: "normal", description: "", photo: null },
         { name: "定位状态", result: "normal", description: "", photo: null },
-      ],
+      ]),
       reports: [],
       postTripConfirm: defaultConfirm,
       createdAt: Date.now() - 1000 * 60 * 60 * 2,
+      driverHandoverNote: "",
+      __schema: 1,
     },
     {
       tripId: createTripId(yesterday, 2),
@@ -79,13 +85,13 @@ function buildSeedRecords(): TripRecord[] {
       durationMin: 58,
       distanceKm: 13.2,
       status: "completed",
-      inspections: [
+      inspections: norm([
         { name: "安全带", result: "normal", description: "", photo: null },
         { name: "灭火器", result: "abnormal", description: "压力指针在红区，已上报车队更换", photo: null },
         { name: "车门", result: "normal", description: "", photo: null },
         { name: "摄像头", result: "normal", description: "", photo: null },
         { name: "定位状态", result: "normal", description: "", photo: null },
-      ],
+      ]),
       reports: [
         {
           id: "seedR1",
@@ -93,10 +99,13 @@ function buildSeedRecords(): TripRecord[] {
           location: "31.4952, 120.3012",
           time: "07:22",
           note: "文三路与古墩路交叉口早高峰拥堵约 8 分钟",
+          status: "pending",
         },
       ],
       postTripConfirm: defaultConfirm,
       createdAt: Date.now() - 1000 * 60 * 60 * 24,
+      driverHandoverNote: "昨日灭火器已通知采购更换，请今日接班司机确认新灭火器是否已安装。",
+      __schema: 1,
     },
     {
       tripId: createTripId(yesterday, 3),
@@ -109,13 +118,13 @@ function buildSeedRecords(): TripRecord[] {
       durationMin: 55,
       distanceKm: 15.6,
       status: "completed",
-      inspections: [
+      inspections: norm([
         { name: "安全带", result: "normal", description: "", photo: null },
         { name: "灭火器", result: "normal", description: "", photo: null },
         { name: "车门", result: "abnormal", description: "后车门开启有轻微异响，待维修", photo: null },
         { name: "摄像头", result: "normal", description: "", photo: null },
         { name: "定位状态", result: "normal", description: "", photo: null },
-      ],
+      ]),
       reports: [
         {
           id: "seedR2",
@@ -123,6 +132,7 @@ function buildSeedRecords(): TripRecord[] {
           location: "31.4821, 120.3155",
           time: "16:55",
           note: "西园三路市政封路，绕行振华路约 5 分钟",
+          status: "pending",
         },
       ],
       postTripConfirm: {
@@ -131,6 +141,8 @@ function buildSeedRecords(): TripRecord[] {
         noStudentLeft: true,
       },
       createdAt: Date.now() - 1000 * 60 * 60 * 24 - 1000 * 60 * 60 * 3,
+      driverHandoverNote: "后车门异响已登记报修，下趟请提醒学生下车时注意站稳再起身。",
+      __schema: 1,
     },
   ] as TripRecord[];
 }
@@ -184,6 +196,7 @@ interface TripState {
   finishTrip: () => void;
   resetTrip: () => void;
   backToDriverFlow: () => void;
+  updateRecord: (tripId: string, patch: Partial<TripRecord>) => void;
 }
 
 function computeNextSeq() {
@@ -285,6 +298,7 @@ export const useTripStore = create<TripState>((set, get) => {
             location,
             time: nowHM(),
             note,
+            status: "pending",
           },
         ],
       })),
@@ -317,10 +331,13 @@ export const useTripStore = create<TripState>((set, get) => {
           result: i.result,
           description: i.description,
           photo: i.photo,
+          status: "pending",
         })),
         reports: s.reports,
         postTripConfirm: s.postTrip,
         createdAt: endTs,
+        driverHandoverNote: "",
+        __schema: 1,
       };
       saveRecord(record);
       set({
@@ -328,6 +345,22 @@ export const useTripStore = create<TripState>((set, get) => {
         drivingEndTs: endTs,
         scene: "completed",
         recordList: loadAllTyped(),
+      });
+    },
+
+    updateRecord: (tripId, patch) => {
+      const list = loadAllTyped();
+      const idx = list.findIndex((r) => r.tripId === tripId);
+      if (idx < 0) return;
+      const merged: TripRecord = { ...list[idx], ...patch } as TripRecord;
+      saveRecord(merged);
+      const next = loadAllTyped();
+      set({
+        recordList: next,
+        lastRecord:
+          useTripStore.getState().lastRecord?.tripId === tripId
+            ? (merged as TripRecord)
+            : useTripStore.getState().lastRecord,
       });
     },
 
@@ -345,3 +378,4 @@ export const useTripStore = create<TripState>((set, get) => {
       })),
   };
 });
+
